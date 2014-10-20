@@ -15,6 +15,7 @@ import wx
 
 from gui import MainFrame
 from version import get_version
+import config
 
 
 def parse_options():
@@ -61,6 +62,7 @@ def setup_logging(log_level, filename):
 def create_wx_app(input_files):
     """Initialize wx and create the main frame."""
     app = wx.PySimpleApp()
+    config.read() # Must be called after we have created the wx.App
     main_frame = MainFrame()
     main_frame.Show()
     for input_file in input_files:

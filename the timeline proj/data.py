@@ -4,6 +4,7 @@ Custom data types.
 
 
 from datetime import timedelta
+from datetime import datetime as dt
 
 
 # To save computation power (used by `delta_to_microseconds`)
@@ -11,7 +12,30 @@ US_PER_SEC = 1000000
 US_PER_DAY = 24 * 60 * 60 * US_PER_SEC
 
 
-class Timeline(object):
+class Observable(object):
+    """
+    Base class for objects that would like to be observable.
+
+    The function registered should take one argument which represent the state
+    change. It can be any object.
+    """
+
+    def __init__(self):
+        self.observers = []
+
+    def register(self, fn):
+        self.observers.append(fn)
+
+    def unregister(self, fn):
+        if fn in self.observers:
+            self.observers.remove(fn)
+
+    def _notify(self, state_change):
+        for fn in self.observers:
+            fn(state_change)
+
+
+class Timeline(Observable):
     """
     Base class that represents the interface for a timeline.
 
@@ -22,51 +46,72 @@ class Timeline(object):
     be used.
 
     All methods that modify the timeline should automatically save it.
+
+    A timeline is observable so that GUI components can update themselves when
+    it changes. The two types of state changes are given as constants below.
     """
 
+    # A category was added, edited, or deleted
+    STATE_CHANGE_CATEGORY = 1
+    # Something happened that changed the state of the timeline
+    STATE_CHANGE_ANY = 2
+
+    def __init__(self):
+        Observable.__init__(self)
+
     def get_events(self, time_period):
-        """Return a list of all events visible within the time period."""
-        pass
+        """Return a list of all events visible within the time period whose
+        category is visible."""
+        raise NotImplementedError()
 
     def add_event(self, event):
         """Add `event` to the timeline."""
-        pass
+        raise NotImplementedError()
 
     def event_edited(self, event):
         """Notify that `event` has been modified so that it can be saved."""
-        pass
+        raise NotImplementedError()
+
+    def select_event(self, event, selected=True):
+        """
+        Notify that event should be marked as selected.
+
+        Must ensure that subsequent calls to get_events maintains this selected
+        state.
+        """
+        raise NotImplementedError()
 
     def delete_selected_events(self):
-        """Delete all events whose selected flag is True."""
-        pass
+        """Delete all events that have been marked as selected."""
+        raise NotImplementedError()
+
+    def reset_selected_events(self):
+        """Mark all selected events as unselected."""
+        raise NotImplementedError()
 
     def get_categories(self):
         """Return a list of all available categories."""
-        pass
+        raise NotImplementedError()
 
     def add_category(self, category):
         """Add `category` to the timeline."""
-        pass
+        raise NotImplementedError()
 
     def category_edited(self, category):
         """Notify that `category` has been modified so that it can be saved."""
-        pass
+        raise NotImplementedError()
 
     def delete_category(self, category):
         """Delete `category` and remove it from all events."""
-        pass
+        raise NotImplementedError()
 
     def get_preferred_period(self):
         """Return the preferred period to display of this timeline."""
-        pass
+        raise NotImplementedError()
 
     def set_preferred_period(self, period):
         """Set the preferred period to display of this timeline."""
-        pass
-
-    def reset_selection(self):
-        """Reset any selection on the timeline."""
-        pass
+        raise NotImplementedError()
 
 
 class Event(object):
@@ -103,7 +148,7 @@ class Event(object):
 class Category(object):
     """Represents a category that an event belongs to."""
 
-    def __init__(self, name, color):
+    def __init__(self, name, color, visible):
         """
         Create a category with the given name and color.
 
@@ -112,6 +157,7 @@ class Category(object):
         """
         self.name = name
         self.color = color
+        self.visible = visible
 
 
 class TimePeriod(object):
@@ -138,9 +184,9 @@ class TimePeriod(object):
         instead.
         """
         if start_time > end_time:
-            raise ValueError("Invalid time period: Start time after end time")
+            raise ValueError("Start time can't be after end time")
         if start_time.year < 10:
-            raise ValueError("Invalid time period: Start time before year 10")
+            raise ValueError("Start time can't be before year 10")
         self.start_time = start_time
         self.end_time = end_time
 
@@ -171,46 +217,48 @@ class TimePeriod(object):
         return self.start_time + self.delta() / 2
 
     def zoom(self, times):
-        """
-        Intended to be used bu GUI only to change which time period is
-        displayed.
-        """
         MAX_ZOOM_DELTA = timedelta(days=120*365)
         MIN_ZOOM_DELTA = timedelta(hours=1)
         delta = mult_timedelta(self.delta(), times / 10.0)
         new_delta = self.delta() - 2 * delta
-        try:
-            if new_delta > MAX_ZOOM_DELTA:
-                raise ValueError("Can't zoom wider than 120 years")
-            if new_delta < MIN_ZOOM_DELTA:
-                raise ValueError("Can't zoom deeper than 1 hour")
-            self.update(self.start_time + delta, self.end_time - delta)
-        except (ValueError, OverflowError):
-            # Zoomed out of range, nothing to do, GUI will not change
-            pass
+        if new_delta > MAX_ZOOM_DELTA:
+            raise ValueError("Can't zoom wider than 120 years")
+        if new_delta < MIN_ZOOM_DELTA:
+            raise ValueError("Can't zoom deeper than 1 hour")
+        self.update(self.start_time + delta, self.end_time - delta)
 
     def move(self, dir):
-        """
-        Intended to be used bu GUI only to change which time period is
-        displayed.
-        """
         delta = mult_timedelta(self.delta(), dir / 10.0)
         self.move_delta(delta)
 
     def move_delta(self, delta):
-        """
-        Intended to be used bu GUI only to change which time period is
-        displayed.
-        """
-        try:
-            self.update(self.start_time + delta, self.end_time + delta)
-        except (ValueError, OverflowError):
-            # Moved out of range, nothing to do, GUI will not change
-            pass
+        self.update(self.start_time + delta, self.end_time + delta)
 
     def delta(self):
         """Return the length of this time period as a timedelta object."""
         return self.end_time - self.start_time
+
+    def center(self, time):
+        """Center time period around time keeping the length."""
+        self.move_delta(time - self.mean_time())
+
+    def fit_year(self):
+        mean = self.mean_time()
+        start = dt(mean.year, 1, 1)
+        end = dt(mean.year + 1, 1, 1)
+        self.update(start, end)
+
+    def fit_month(self):
+        mean = self.mean_time()
+        start = dt(mean.year, mean.month, 1)
+        end = dt(mean.year, mean.month + 1, 1)
+        self.update(start, end)
+
+    def fit_day(self):
+        mean = self.mean_time()
+        start = dt(mean.year, mean.month, mean.day)
+        end = dt(mean.year, mean.month, mean.day + 1)
+        self.update(start, end)
 
 
 def delta_to_microseconds(delta):

@@ -42,6 +42,7 @@ class FileTimeline(Timeline):
 
     def __init__(self, file_path):
         """Create a new timeline and read data from file."""
+        Timeline.__init__(self)
         self.file_path = file_path
         self.__load_data()
 
@@ -65,7 +66,7 @@ class FileTimeline(Timeline):
             else:
                 data_corrupt = False
                 for line in file:
-                    if not self.__load_object_from_line(line.strip()):
+                    if not self.__load_object_from_line(line.rstrip("\r\n")):
                         data_corrupt = True
                 if data_corrupt:
                     display_error_message("Timeline data corrupt. Enable logging and open the timeline again to get more information about the problem.")
@@ -95,8 +96,9 @@ class FileTimeline(Timeline):
                         time_string(self.preferred_period.end_time)))
                 for cat in self.categories:
                     r, g, b = cat.color
-                    file.write("CATEGORY:%s;%s,%s,%s\n" % (quote(cat.name),
-                                                           r, g, b))
+                    file.write("CATEGORY:%s;%s,%s,%s;%s\n" % (quote(cat.name),
+                                                              r, g, b,
+                                                              cat.visible))
                 for event in self.events:
                     file.write("EVENT:%s;%s;%s" % (
                         time_string(event.time_period.start_time),
@@ -108,6 +110,7 @@ class FileTimeline(Timeline):
         finally:
             if file:
                 file.close()
+        self._notify(Timeline.STATE_CHANGE_ANY)
 
     def __create_backup(self):
         backup_path = self.file_path + "~"
@@ -149,14 +152,23 @@ class FileTimeline(Timeline):
             return False
 
     def __load_category(self, category_text):
-        """Expected format 'name;color'."""
+        """
+        Expected format 'name;color;visible'.
+        
+        File format for timeline version 0.1.0 did not have the visible
+        attribute. If it is not found (we read an old file), we automatically
+        set it to True.
+        """
         category_data = split_on_semicolon(category_text)
         try:
-            if len(category_data) != 2:
+            if len(category_data) != 2 and len(category_data) != 3:
                 raise ParseException("Unexpected number of components")
             name = dequote(category_data[0])
             color = parse_color(category_data[1])
-            self.categories.append(Category(name, color))
+            visible = True
+            if len(category_data) == 3:
+                visible = parse_bool(category_data[2])
+            self.categories.append(Category(name, color, visible))
             return True
         except ParseException, e:
             logerror("Unable to parse category from '%s'" % category_text,
@@ -202,8 +214,13 @@ class FileTimeline(Timeline):
         return None
 
     def get_events(self, time_period):
-        return [event for event in self.events
-                if event.inside_period(time_period)]
+        def include_event(event):
+            if not event.inside_period(time_period):
+                return False
+            if event.category != None and event.category.visible == False:
+                return False
+            return True
+        return [event for event in self.events if include_event(event)]
 
     def add_event(self, event):
         self.events.append(event)
@@ -212,9 +229,18 @@ class FileTimeline(Timeline):
     def event_edited(self, event):
         self.__save_data()
 
+    def select_event(self, event, selected=True):
+        event.selected = selected
+        self._notify(Timeline.STATE_CHANGE_ANY)
+
     def delete_selected_events(self):
         self.events = [event for event in self.events if not event.selected]
         self.__save_data()
+
+    def reset_selected_events(self):
+        for event in self.events:
+            event.selected = False
+        self._notify(Timeline.STATE_CHANGE_ANY)
 
     def get_categories(self):
         # Make sure the original list can't be modified
@@ -223,9 +249,11 @@ class FileTimeline(Timeline):
     def add_category(self, category):
         self.categories.append(category)
         self.__save_data()
+        self._notify(Timeline.STATE_CHANGE_CATEGORY)
 
     def category_edited(self, category):
         self.__save_data()
+        self._notify(Timeline.STATE_CHANGE_CATEGORY)
 
     def delete_category(self, category):
         if category in self.categories:
@@ -234,6 +262,7 @@ class FileTimeline(Timeline):
             if event.category == category:
                 event.category = None
         self.__save_data()
+        self._notify(Timeline.STATE_CHANGE_CATEGORY)
 
     def get_preferred_period(self):
         if self.preferred_period:
@@ -244,9 +273,19 @@ class FileTimeline(Timeline):
         self.preferred_period = period
         self.__save_data()
 
-    def reset_selection(self):
-        for event in self.events:
-            event.selected = False
+
+def parse_bool(bool_string):
+    """
+    Return True or False.
+
+    Expected format 'True' or 'False'.
+    """
+    if bool_string == "True":
+        return True
+    elif bool_string == "False":
+        return False
+    else:
+        raise ParseException("Unknown boolean '%s'" % bool_string)
 
 
 def parse_color(color_string):
