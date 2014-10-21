@@ -1,0 +1,36 @@
+This directory contains the 0.4.0 release of Timeline.
+
+Timeline is a free, cross-platform application for displaying and navigating
+information on a timeline. 
+
+Timeline is free software, distributed under the GNU General Public License,
+version 3. For more information, see the file COPYING.
+
+Overview of the files in this directory:
+
+icons/          - Images used for application icon
+manual/         - User manual
+  figures/      - Figures for the user manual
+  demo.timeline - Timeline used for taking screenshots for the manual
+  fdl-1.3.xml   - Copy of the GNU Free Documentation License
+  manual.xml    - DocBook source for user manual
+po/             - Translation files
+src/            - Python source code (run with 'python main.py')
+tests/          - Unit tests (run with 'python run.py')
+AUTHORS         - Lists all people that have contributed to the project
+CHANGES         - Lists changes between releases (releases notes)
+COPYING         - A copy of the GNU General Public License, version 3
+INSTALL         - Instructions how to install Timeline
+README          - This file
+release.py      - Script to generate a source package
+SConstruct      - File read by SCons to build parts of the application
+
+The project's website is intended as the first source of information about the
+project. It includes information about how to download the software, how to get
+help, and how to participate:
+
+  http://thetimelineproj.sourceforge.net/
+
+All development takes place here:
+
+  http://sourceforge.net/apps/trac/thetimelineproj/
